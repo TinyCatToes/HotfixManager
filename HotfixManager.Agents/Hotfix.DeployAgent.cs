@@ -1,0 +1,313 @@
+﻿using kCura.Agent;
+using kCura.Relativity.Client;
+using Relativity.API;
+using Relativity.Services.Objects;
+using Relativity.Services.Objects.DataContracts;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Net;
+
+namespace HotfixManager.Agents
+{
+    [kCura.Agent.CustomAttributes.Name("Hotfix Deployment Agent")]
+    [System.Runtime.InteropServices.Guid("D7B19644-7C7C-4D60-A3B6-7E15CE0D8F30")]
+    public class DeployAgent : AgentBase
+    {
+        private static string CHECK_QUEUE_NEW_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where (AgentName is null) OR (AgentName = '') and [Status] = 1 order by QueueID asc";
+        private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where AgentName  = @AgentName and [Status] = 3 order by QueueID asc";
+        private static string LOCKQUEUEENTRY_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set AgentName = @AgentName, Status = 2 where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID and Status = 1 and ((AgentName is null) or (AgentName = ''))";
+        private static string DELETEFROMQUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixDeployQueue where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID";
+        private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where AgentName = @AgentName and QueueID = @QueueID";
+        private int packageArtifactID = 0;
+        private int queueID = 0;
+        private string packageDiskLocation = "PREINIT";
+        private IAPILog logger;
+
+        public override void Execute()
+        {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
+            logger = Helper.GetLoggerFactory().GetLogger().ForContext<DeployAgent>();
+
+            //check if current time is during offhours.             
+            if (!IsOffHours())
+            {
+                RaiseMessage("Current time is not during off-hours range.", 10);
+                return;
+            }
+
+            //get queue row from database            
+            try
+            {
+                DataRow queuerow = getQueuedJobRowFromTable();
+                if (queuerow == null)
+                {
+                    return; //no row found, exit
+                }
+                queueID = queuerow.Field<int>("QueueID");
+                packageArtifactID = queuerow.Field<int>("PackageArtifactID");
+                logger.LogVerbose("Hotfix: Located deloyable package {AID} with queueID {QID}", packageArtifactID, queueID);//verb
+            }
+            catch (Exception ex)
+            {
+                exitWithFailure(ex.ToString());
+                RaiseError("Failed to read from queue table.", ex.ToString());
+            }
+
+            //lock that row 
+            try
+            {
+                int lockresult = lockQueueRowforActiveJob(packageArtifactID, queueID);
+                if (lockresult != 0)
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                exitWithFailure(ex.ToString());
+                RaiseError("Failed to lock queue row for work.", ex.ToString());
+            }
+
+            //create logging RDO
+            try
+            {
+                ObjectRef logRDO = createLogRDO();
+            }
+            catch(Exception ex)
+            {
+                exitWithFailure(ex.ToString());
+                RaiseError("Failed to create Job History RDO", ex.ToString());
+            }
+
+
+
+
+        }//end Execute
+
+        //checks the queue table for rows that are available for deployment. If no rows are returned or the read errors, returns null
+        private DataRow getQueuedJobRowFromTable()
+        {
+            //look for an errored queue row already locked by this agent.
+            DataTable ExistingQResult = new DataTable();
+            SqlParameter agentNameParam = new SqlParameter("AgentName", SqlDbType.Int);
+            try
+            {
+                ExistingQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_EXISTING_QUERY, new List<SqlParameter> { agentNameParam } );
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Failed to read from HotfixDeployQueue.");
+                throw;
+            }
+            //if found, return our existing errored row.
+            if(ExistingQResult.Rows.Count > 0)
+            {
+                return ExistingQResult.Rows[0];
+            }
+
+            //check for unlocked queue rows
+            DataTable NewQResult = new DataTable();            
+            try
+            {
+                NewQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_NEW_QUERY);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Failed to read from HotfixDeployQueue.");
+                throw;
+            }
+
+            //check if datatable is empty. if no rows returned, exit.
+            if (NewQResult == null || NewQResult.Rows.Count == 0)
+            {
+                logger.LogVerbose("Hotfix: No packages ready to deploy found. Exiting.");//verb
+                RaiseMessage("No packages to deploy.", 10);
+                return null;
+            }
+            else
+            {
+                return NewQResult.Rows[0];
+            }                           
+        } //end getQueuedJobRowFromTable
+
+        //updates a row in the queue table to lock it while we work. returns 1 for nonsuccess, and 0 for success.       
+        private int lockQueueRowforActiveJob(int packageArtifactID, int QueueID)
+        {
+
+            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
+            SqlParameter agentNameParam = new SqlParameter("AgentName", SqlDbType.Int);
+            packageIDParam.Value = packageArtifactID;
+            queueIDParam.Value = queueID;
+            agentNameParam.Value = this.AgentID;
+            try
+            {
+                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(LOCKQUEUEENTRY_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam, agentNameParam });
+                if (rowsaffected == 0)
+                {
+                    logger.LogVerbose("Hotfix: Lost race to lock queue row #{QID} for package {PID}. Exiting.", queueID, packageArtifactID);//verb
+                    return 1;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Failed to lock deploy queue row.");
+                throw;
+            }
+            RaiseMessage("Beginning deploy of package " + packageArtifactID.ToString(), 10);
+            updateInlineFieldsWithResult("In Progress");
+            return 0;
+        } //end lockQueueRowforActiveJob
+
+        //this writes deploy queue status back to the RDO
+        //does not rethrow exceptions (flow can continue if this method fails)
+        private void updateInlineFieldsWithResult(string status, string Message = "")
+        {
+            var deployStatusFVP = new FieldRefValuePair
+            {
+                Field = new FieldRef() { Guid = Constants.Constants.LAST_RUN_STATUS_FIELD },
+            };
+            switch (status)
+            {
+                case "In Progress":
+                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_INPROG_CHOICE };
+                    break;
+                case "Error":
+                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_ERROR_FIELD };
+                    break;
+                case "Complete":
+                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_COMPLETE_CHOICE };
+                    break;
+                default:
+                    logger.LogError("Hotfix: Undefined Last Run Status Entered.");
+                    RaiseError("Undefined Last Run Status Entered.","Invalid Status code entered: "+status);
+                    break;
+            };
+
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {
+                var CurrentObject = new RelativityObjectRef { ArtifactID = packageArtifactID };                
+                var deployErrorFVP = new FieldRefValuePair
+                {
+                    Field = new FieldRef() { Guid = Constants.Constants.LAST_RUN_ERROR_FIELD },
+                    Value = Message
+                };
+
+                var updateRequest = new UpdateRequest
+                {
+                    Object = CurrentObject,
+                    FieldValues = new List<FieldRefValuePair> { deployStatusFVP, deployErrorFVP }
+                };
+                try
+                {
+                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                }
+                catch (AggregateException ex)
+                {//print error for each exception in aggregate, then end.
+                    foreach (var exchild in ex.InnerExceptions)
+                    {
+                        logger.LogError(exchild, "Hotfix: Error When Updating Inline Results Fields");
+                    }
+                    return;
+                }
+            }
+        } //end updateInlineFieldsWithResult
+
+
+        //method to set queue row to errored state and call updateInlineFieldsWithResult
+        private void exitWithFailure(string message)
+        {
+            //remove job row from queue
+            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
+            packageIDParam.Value = packageArtifactID;
+            queueIDParam.Value = queueID;
+            try
+            {
+                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(SET_STATUS_ERROR_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam });
+                if (rowsaffected == 0)
+                {
+                    throw new Exception("No row found to set to Error for package ID" + packageArtifactID.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error setting row to Error in Deploy queue");
+            }
+
+            updateInlineFieldsWithResult("Error", message);
+        }//end exitWithFailure
+
+
+        //creates and initializes the RDO that holds all logging information. 
+        //returns an ObjectRef to the log RDO.
+        private ObjectRef createLogRDO()
+        {
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {
+                ObjectRef retVal;
+                var logName = new FieldRefValuePair
+                {
+                    Field = { Name = "Name" },
+                    Value = packageArtifactID.ToString() + DateTime.UtcNow.ToString()
+                };
+                var logRunDate = new FieldRefValuePair
+                {
+                    Field = {Name = "Run Time"},
+                    Value = DateTime.Now
+                };
+                var logRunStatus = new FieldRefValuePair
+                {
+                    Field = { Name = "Run Status" },
+                    Value = new ChoiceRef { Guid = Constants.Constants.LOG_STATUS_INPROG_CHOICE }
+                };
+                var logLongText = new FieldRefValuePair
+                {
+                    Field = { Name = "Log" },
+                    Value = @"***Beginning deployment of package " + packageArtifactID.ToString() + " by agent " + this.AgentID + @"***\n"
+                };
+                CreateRequest createreq = new CreateRequest
+                {
+                    ObjectType = { Name = "Hotfix - Job History"},
+                    ParentObject = { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE },
+                    FieldValues = new List<FieldRefValuePair> { logName,logRunDate,logRunStatus}
+                };
+
+                try
+                {
+                    var result = objectManager.CreateAsync(-1, createreq).Result;
+                    retVal = new ObjectRef { ArtifactID = result.Object.ArtifactID };                 
+                }
+                catch(AggregateException ex)
+                {
+                    foreach(Exception e in ex.InnerExceptions)
+                    {
+                        logger.LogError(e, "Hotfix: failed to create deploy log object.");
+                    }
+                    throw;
+                }
+                catch(Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: failed to create deploy log object.");
+                    throw;
+                }             
+                return retVal;
+            }            
+        }
+
+
+
+        /// <summary>
+        /// Returns the name of agent
+        /// </summary>
+        public override string Name
+        {
+            get
+            {
+                return "Hotfix Deployment Agent";
+            }
+        }
+    }
+}
