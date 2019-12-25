@@ -34,6 +34,5 @@ namespace HotfixManager.Constants
         public static readonly Guid LOG_STATUS_INPROG_CHOICE = new Guid("4694B4B7-869C-428D-A15E-159E2D71AA6C");
         public static readonly Guid LOG_STATUS_COMPLETE_CHOICE = new Guid("72575DEC-C0EC-4F83-8C48-0DF4AB3676A0");
         public static readonly Guid LOG_STATUS_ERROR_CHOICE = new Guid("80C93967-FB57-4966-87BB-2A0B9FE8D203");
-
     }
 }
