@@ -19,7 +19,7 @@ namespace HotfixManager.Agents
         private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where AgentName = @AgentName and [Status] = 3 order by QueueID asc";
         private static string LOCKQUEUEENTRY_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set AgentName = @AgentName, Status = 2 where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID and Status = 1 and ((AgentName is null) or (AgentName = ''))";
         private static string DELETEFROMQUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixDeployQueue where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID";
-        private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifatctID = @PackageArtifactID and QueueID = @QueueID";
+        private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifactID = @PackageArtifactID and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
         private string packageDiskLocation = "PREINIT";
@@ -188,7 +188,7 @@ namespace HotfixManager.Agents
                     deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_INPROG_CHOICE };
                     break;
                 case "Error":
-                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_ERROR_FIELD };
+                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_ERROR_CHOICE };
                     break;
                 case "Complete":
                     deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_COMPLETE_CHOICE };
