@@ -41,7 +41,7 @@
       <HintPath>..\packages\Relativity.Agent.10.2.170.2\lib\net462\kCura.Agent.dll</HintPath>
     </Reference>
     <Reference Include="kCura.EventHandler">
-      <HintPath>..\..\..\..\..\..\Program Files\kCura Corporation\Relativity SDK\Event Handlers\Client\kCura.EventHandler.dll</HintPath>
+      <HintPath>..\packages\Relativity.EventHandler.10.2.170.2\lib\net462\kCura.EventHandler.dll</HintPath>
     </Reference>
     <Reference Include="kCura.Relativity.Client, Version=10.2.170.2, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Relativity.Rsapi.10.2.170.2\lib\net462\kCura.Relativity.Client.dll</HintPath>

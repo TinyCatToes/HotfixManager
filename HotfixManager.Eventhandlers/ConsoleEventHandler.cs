@@ -17,9 +17,10 @@ namespace HotfixManager.EventHandlers
     [System.Runtime.InteropServices.Guid("A4979CE9-8640-4D15-B635-99D86F776121")]
     public class HotfixConsoleEventhandler : kCura.EventHandler.ConsoleEventHandler
     {
-        private const string JOB_EXISTS_QUERY = @"select case when exists (select 1 from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID) then 1 else 0 end";
+        private const string JOB_EXISTS_QUERY = @"select case when not exists (select 1 from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID) then 0 else (select Status from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID) end";
         private const string ENQUEUE_QUERY = @"insert into EDDS.eddsdbo.HotfixDeployQueue values (@PackageArtifactID,1,'',100,GETUTCDATE(),@ActingUser)";
         private const string DEQUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID";
+        private const string RETRY_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 4 where PackageArtifactID = @PackageArtifactID";
         private IAPILog logger;
        
         public override kCura.EventHandler.Console GetConsole(PageEvent pageEvent)
@@ -35,26 +36,30 @@ namespace HotfixManager.EventHandlers
             //create buttons
             ConsoleButton enqueueButton = new ConsoleButton() { Name = "AddToDeployQueue", DisplayText = "Queue Deployment", ToolTip = "Queues the package for deployment", Enabled = true, RaisesPostBack = true };
             ConsoleButton dequeueButton = new ConsoleButton() { Name = "RemoveFromDeployQueue", DisplayText = "Cancel Deployment", ToolTip = "Removes the package from the deployment queue", Enabled = false, RaisesPostBack = true };
-         
+            ConsoleButton errorRetryButton = new ConsoleButton() { Name = "QueueErrorRetry", DisplayText = "Retry Deploy Errors", ToolTip = "Attempts to retry errors encountered during deployment", Enabled = false, RaisesPostBack = true };
 
-            //check if job is currently queued.
+            //check if job is is in the queue table. returns 0 if it is not, returns current status if it is.
             if (pageEvent == PageEvent.PreRender)
             {
                 SqlParameter selfArtifactID = new SqlParameter("PackageArtifactID", SqlDbType.Int);
                 selfArtifactID.Value = this.ActiveArtifact.ArtifactID;
-                int jobExists = Helper.GetDBContext(-1).ExecuteSqlStatementAsScalar<Int32>(JOB_EXISTS_QUERY, selfArtifactID);
-
-                if (jobExists > 0)
+                int queueStatus = Helper.GetDBContext(-1).ExecuteSqlStatementAsScalar<Int32>(JOB_EXISTS_QUERY, selfArtifactID);
+                if (queueStatus > 0)
                 {
                     enqueueButton.Enabled = false;
                     dequeueButton.Enabled = true;
-                    dequeueButton.StyleAttribute = "background:maroon !important";
-                }               
+                    dequeueButton.StyleAttribute = "background:maroon !important";                    
+                }
+                if (queueStatus == 3)
+                { 
+                        errorRetryButton.Enabled = true;
+                }
             }
 
             //add buttons to the console
             hotfixConsole.Items.Add(enqueueButton);
             hotfixConsole.Items.Add(dequeueButton);
+            hotfixConsole.Items.Add(errorRetryButton);
             return hotfixConsole;
         }
 
@@ -74,6 +79,9 @@ namespace HotfixManager.EventHandlers
                     break;
                 case "RemoveFromDeployQueue":
                     dequeueJob(selfArtifactID);
+                    break;
+                case "QueueErrorRetry":
+                    retryError(selfArtifactID);
                     break;
                 default:
                     break;
@@ -128,9 +136,7 @@ namespace HotfixManager.EventHandlers
                 }
             }
         } //end enqueueJob
-         
-        
-
+                
         private void dequeueJob(SqlParameter selfArtifactID)
         {
             try
@@ -176,6 +182,59 @@ namespace HotfixManager.EventHandlers
 
         }
         
+        private void retryError(SqlParameter selfArtifactID)
+        {
+            try
+            {
+                int result = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(RETRY_ERROR_QUERY, new SqlParameter[] { selfArtifactID }, 90);
+                if (result < 1)
+                {
+                    logger.LogError("Hotfix: Failed to retry job {jobArtID}, Queue row not found", selfArtifactID.Value.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error attempting to retry job.");
+            }
+
+            //after successfully adding queue row, update job.
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {
+                var currentObject = new RelativityObjectRef { ArtifactID = this.ActiveArtifact.ArtifactID };
+                var statusFVP = new FieldRefValuePair
+                {
+                    Field = new FieldRef() { Guid = Constants.Constants.LAST_RUN_STATUS_FIELD },
+                    Value = new ChoiceRef() { Guid = Constants.Constants.LAST_RUN_QUEUED_CHOICE }
+                };
+                var timeFVP = new FieldRefValuePair
+                {
+                    Field = new FieldRef() { Guid = Constants.Constants.LAST_RUN_TIME_FIELD },
+                    Value = DateTime.Now
+                };
+                var updateRequest = new UpdateRequest
+                {
+                    Object = currentObject,
+                    FieldValues = new List<FieldRefValuePair> { statusFVP, timeFVP }
+                };
+                try
+                {
+                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                }
+                catch (AggregateException ex)
+                {//print error for each exception in aggregate, then end.
+                    foreach (var exchild in ex.InnerExceptions)
+                    {
+                        logger.LogError(exchild, "Hotfix: Failed to update object {artID} with queueing status.", selfArtifactID.Value.ToString());
+                    }
+                    return;
+                }
+                catch(Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: Failed to update object {artID} with queueing status.", selfArtifactID.Value.ToString());
+                }
+            }
+        }
+
 
         /// <summary>
         ///     The RequiredFields property tells Relativity that your event handler needs to have access to specific fields that

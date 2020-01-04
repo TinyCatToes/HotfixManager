@@ -186,17 +186,17 @@ namespace HotfixManager.Agents
             {
                 try
                 {                    
-                queryRequest.ObjectType = new ObjectTypeRef() { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE };
-                queryRequest.Fields = new List<FieldRef>()
-                {
-                    new FieldRef() { Guid = Constants.Constants.DISK_LOCATION_FIELD }
-                };                                    
-                queryRequestString = @"(('ArtifactID' == '" + packageArtifactID.ToString() + @"'))";                                    
-                queryRequest.Condition = queryRequestString;                           
+                    queryRequest.ObjectType = new ObjectTypeRef() { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE };
+                    queryRequest.Fields = new List<FieldRef>()
+                    {
+                        new FieldRef() { Guid = Constants.Constants.DISK_LOCATION_FIELD }
+                    };                                    
+                    queryRequestString = @"(('ArtifactID' == '" + packageArtifactID.ToString() + @"'))";                                    
+                    queryRequest.Condition = queryRequestString;                           
 
-                Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(-1, queryRequest, 1, 1).Result;
-                resultValue = qresult.Objects[0].FieldValues[0].Value.ToString();
-                logger.LogVerbose("Hotifx: Retrieved path {path} for package object {AID}", resultValue,packageArtifactID);
+                    Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(-1, queryRequest, 1, 1).Result;
+                    resultValue = qresult.Objects[0].FieldValues[0].Value.ToString();
+                    logger.LogVerbose("Hotifx: Retrieved path {path} for package object {AID}", resultValue,packageArtifactID);
                 }            
                 catch (Exception ex)
                 {
