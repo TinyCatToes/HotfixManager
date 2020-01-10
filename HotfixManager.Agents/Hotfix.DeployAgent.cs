@@ -256,7 +256,7 @@ namespace HotfixManager.Agents
                     var logLongText = new FieldRefValuePair
                     {
                         Field = new FieldRef() { Name = "Log" },
-                        Value = @"***Beginning deployment of package " + packageArtifactID.ToString() + " by agent " + this.AgentID + "***" + Environment.NewLine
+                        Value = @"***Beginning deployment of package " + packageArtifactID.ToString() + " by agent " + this.AgentID + "***"
                     };                    
                     CreateRequest createreq = new CreateRequest
                     {
