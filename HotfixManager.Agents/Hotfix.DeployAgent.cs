@@ -22,7 +22,8 @@ namespace HotfixManager.Agents
         private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifactID = @PackageArtifactID and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
-        
+        private bool slapdashAllInOneOverride = true;
+
         //private string packageDiskLocation = "PREINIT";
         private IAPILog logger;
 
@@ -321,7 +322,14 @@ namespace HotfixManager.Agents
                 {
                     string message = "Located server " + obj.FieldValues[1].Value.ToString() + " with artifactID " + obj.FieldValues[0].Value.ToString();
                     writeToLog(message,logRDO);
-                    retList.Add(obj.FieldValues[1].Value.ToString());
+                    if ((int)obj.FieldValues[0].Value == this.GetAgentServerID() && slapdashAllInOneOverride is false)//check to see if self is in list. added terrible override key to allow for testing in all-in-ones
+                    {
+                        writeToLog("Skipping server " + obj.FieldValues[1].Value.ToString() + "because an agent cannot deploy a package to its own server.",logRDO);
+                    }
+                    else
+                    {//add current server to list ONLY if it is not the current server. 
+                        retList.Add(obj.FieldValues[1].Value.ToString());
+                    }
                 }
                 return retList;
             }
