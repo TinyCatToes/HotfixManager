@@ -348,7 +348,7 @@ namespace HotfixManager.Agents
                                     break;
                                 }
                         }
-                        currentItem.Locations += curLoc + "\r\n";                    
+                        currentItem.Locations += curLoc + Environment.NewLine;                    
                     }
                     //populated class added to list, will be created in loop at the end.
                     hotfixItems.Add(currentItem);
