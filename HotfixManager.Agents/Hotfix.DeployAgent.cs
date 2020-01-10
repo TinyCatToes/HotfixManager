@@ -22,7 +22,7 @@ namespace HotfixManager.Agents
         private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifactID = @PackageArtifactID and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
-        private bool slapdashAllInOneOverride = true;
+        private bool slapdashAllInOneOverride = true; //remove this once the selfdrop problem is solved.
 
         //private string packageDiskLocation = "PREINIT";
         private IAPILog logger;
@@ -334,6 +334,11 @@ namespace HotfixManager.Agents
                 return retList;
             }
         } //getServerList
+
+        private void deployToServer(string serverName)
+        {
+
+        }
 
         //wrapper to append lines to the log RDO. 
         //does not rethrow exceptions, simply logs them.
