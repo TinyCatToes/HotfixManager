@@ -95,8 +95,8 @@ namespace HotfixManager.Agents
                 exitWithFailure(ex.ToString());
                 RaiseError("Failed to read server list.", ex.ToString());
             }
-           
 
+            exitWithSuccess(logRDO);
 
         }//end Execute
 
@@ -229,84 +229,7 @@ namespace HotfixManager.Agents
                 }
             }
         } //end updateInlineFieldsWithResult
-
-
-        //method to set queue row to errored state and call updateInlineFieldsWithResult
-        private void exitWithFailure(string message, RelativityObject logRDO = null)
-        {
-            //remove job row from queue
-            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
-            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
-            packageIDParam.Value = packageArtifactID;
-            queueIDParam.Value = queueID;
-            try
-            {
-                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(SET_STATUS_ERROR_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam });
-                if (rowsaffected == 0)
-                {
-                    throw new Exception("No row found to set to Error for package ID" + packageArtifactID.ToString());
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Hotfix: Error setting row to Error in Deploy queue");
-            }
-
-            //update package RDO with results
-            updateInlineFieldsWithResult("Error", message);
-
-            //append to the log file, if it exsits. if it doesn't, just exit.
-            if (logRDO == null)
-            {
-                logger.LogFatal("Hotfix: Log RDO doesn't exist, skipping write.");//verb
-                return;
-            }
-            else
-            {
-                //update log RDO with message and Error status
-                writeToLog(message, logRDO);
-                try
-                {
-                    var updReq = new UpdateRequest()
-                    {
-                        Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
-                        FieldValues = new List<FieldRefValuePair>()
-                    {
-                        new FieldRefValuePair()
-                        {
-                            Field = new FieldRef()
-                            {
-                                Name = "Run Status"
-                            },
-                            Value = new ChoiceRef()
-                            {
-                                Guid = Constants.Constants.LOG_STATUS_ERROR_CHOICE
-                            }
-                        }
-
-                    }
-                    };
-                    using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
-                    {
-                        var updresult = objectManager.UpdateAsync(-1, updReq).Result;
-                    }
-
-                }
-                catch (AggregateException ex)
-                {
-                    foreach (Exception exchild in ex.InnerExceptions)
-                    {
-                        logger.LogError(exchild, "Hotfix: Error updating status of log RDO");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Hotfix: Error updating status of log RDO");
-                }
-            }
-        }//end exitWithFailure
-
-
+      
         //creates and initializes the RDO that holds all logging information. 
         //returns an ObjectRef to the log RDO.
         private RelativityObject createLogRDO()
@@ -480,6 +403,148 @@ namespace HotfixManager.Agents
                 }
             }
         } //end writeToLog
+
+        //removes queue row and writes to log and inline results fields
+        private void exitWithSuccess(RelativityObject logRDO)
+        {
+            //remove job row from queue
+            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
+            packageIDParam.Value = packageArtifactID;
+            queueIDParam.Value = queueID;
+            try
+            {
+                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(DELETEFROMQUEUE_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam });
+                if (rowsaffected == 0)
+                {
+                    throw new Exception("No row found to delete for package ID" + packageArtifactID.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error Removing row from Deploy queue");
+            }
+
+            //update logRDO status.
+            updateInlineFieldsWithResult("Complete");
+            writeToLog("***Completed Deployment of package.***",logRDO);
+
+            try
+            {
+                var updReq = new UpdateRequest()
+                {
+                    Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                    FieldValues = new List<FieldRefValuePair>()
+                    {
+                        new FieldRefValuePair()
+                        {
+                            Field = new FieldRef()
+                            {
+                                Name = "Run Status"
+                            },
+                            Value = new ChoiceRef()
+                            {
+                                Guid = Constants.Constants.LOG_STATUS_COMPLETE_CHOICE
+                            }
+                        }
+
+                    }
+                };
+                using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+                {
+                    var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                }
+
+            }
+            catch (AggregateException ex)
+            {
+                foreach (Exception exchild in ex.InnerExceptions)
+                {
+                    logger.LogError(exchild, "Hotfix: Error updating status of log RDO");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error updating status of log RDO");
+            }
+
+            RaiseMessage("Completed deploy for package " + packageArtifactID.ToString(), 10);
+        }//end exitWithSuccess
+
+        //method to set queue row to errored state and call updateInlineFieldsWithResult
+        private void exitWithFailure(string message, RelativityObject logRDO = null)
+        {
+            //remove job row from queue
+            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
+            packageIDParam.Value = packageArtifactID;
+            queueIDParam.Value = queueID;
+            try
+            {
+                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(SET_STATUS_ERROR_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam });
+                if (rowsaffected == 0)
+                {
+                    throw new Exception("No row found to set to Error for package ID" + packageArtifactID.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error setting row to Error in Deploy queue");
+            }
+
+            //update package RDO with results
+            updateInlineFieldsWithResult("Error", message);
+
+            //append to the log file, if it exsits. if it doesn't, just exit.
+            if (logRDO is null)
+            {
+                logger.LogFatal("Hotfix: Log RDO doesn't exist, skipping write.");//verb
+                return;
+            }
+            else
+            {
+                //update log RDO with message and Error status
+                writeToLog(message, logRDO);
+                try
+                {
+                    var updReq = new UpdateRequest()
+                    {
+                        Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                        FieldValues = new List<FieldRefValuePair>()
+                    {
+                        new FieldRefValuePair()
+                        {
+                            Field = new FieldRef()
+                            {
+                                Name = "Run Status"
+                            },
+                            Value = new ChoiceRef()
+                            {
+                                Guid = Constants.Constants.LOG_STATUS_ERROR_CHOICE
+                            }
+                        }
+
+                    }
+                    };
+                    using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+                    {
+                        var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                    }
+
+                }
+                catch (AggregateException ex)
+                {
+                    foreach (Exception exchild in ex.InnerExceptions)
+                    {
+                        logger.LogError(exchild, "Hotfix: Error updating status of log RDO");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: Error updating status of log RDO");
+                }
+            }
+        }//end exitWithFailure
 
         /// <summary>
         /// Returns the name of agent
