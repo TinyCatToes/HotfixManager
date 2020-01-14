@@ -297,7 +297,8 @@ namespace HotfixManager.Agents
                     Fields = new List<FieldRef>()
                     {
                         new FieldRef() { Name = "ArtifactID" },
-                        new FieldRef() { Name = "Name" }
+                        new FieldRef() { Name = "Name" },
+                        new FieldRef() { Name = "Type" }
                     }                    
                 };
 
@@ -320,7 +321,7 @@ namespace HotfixManager.Agents
                 }
                 foreach(RelativityObject obj in qresult.Objects )
                 {
-                    string message = "Located server " + obj.FieldValues[1].Value.ToString() + " with artifactID " + obj.FieldValues[0].Value.ToString();
+                    string message = "Located " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString() + " with artifactID " + obj.FieldValues[0].Value.ToString();
                     writeToLog(message,logRDO);
                     if ((int)obj.FieldValues[0].Value == this.GetAgentServerID() && slapdashAllInOneOverride is false)//check to see if self is in list. added terrible override key to allow for testing in all-in-ones
                     {
