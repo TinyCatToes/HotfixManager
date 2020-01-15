@@ -333,7 +333,11 @@ namespace HotfixManager.Agents
                         {
                             retList.Add(obj.FieldValues[1].Value.ToString());
                             writeToLog("Queued drop to " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString(), logRDO);
-                        }                        
+                        }
+                        else
+                        {
+                            writeToLog("Skipped drop to " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString() + " as this server is already queued", logRDO);
+                        }
                     }
                 }
                 return retList;
