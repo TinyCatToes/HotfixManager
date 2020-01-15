@@ -328,8 +328,12 @@ namespace HotfixManager.Agents
                         writeToLog("Skipping server " + obj.FieldValues[1].Value.ToString() + "because an agent cannot deploy a package to its own server.",logRDO);
                     }
                     else
-                    {//add current server to list ONLY if it is not the current server. 
-                        retList.Add(obj.FieldValues[1].Value.ToString());
+                    {//add current server to list ONLY if it is not the current server and not already in the list.
+                        if (!retList.Contains(obj.FieldValues[1].Value.ToString()) )
+                        {
+                            retList.Add(obj.FieldValues[1].Value.ToString());
+                            writeToLog("Queued drop to " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString(), logRDO);
+                        }                        
                     }
                 }
                 return retList;
