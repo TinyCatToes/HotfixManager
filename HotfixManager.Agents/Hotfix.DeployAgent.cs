@@ -84,19 +84,32 @@ namespace HotfixManager.Agents
                 RaiseError("Failed to create Job History RDO", ex.ToString());                
             }
 
-            List<string> serverlist = new List<string>();
+            List<string> serverList = new List<string>();
             //generate list of target servers.
             try
             {
                 
-                serverlist = getServerList(logRDO);
+                serverList = getServerList(logRDO);
             }
             catch(Exception ex)
             {
                 exitWithFailure(ex.ToString());
                 RaiseError("Failed to read server list.", ex.ToString());
             }
-
+            
+            //loop the list and call deploy.
+            foreach (string curServer in serverList)
+            {
+                try
+                {
+                    deployToServer(curServer);
+                }
+                catch (Exception ex)
+                {                    
+                    exitWithFailure(ex.ToString());
+                    RaiseError("Failed to deploy to server" + curServer,ex.ToString());
+                }
+            }
             exitWithSuccess(logRDO);
 
         }//end Execute
@@ -344,6 +357,9 @@ namespace HotfixManager.Agents
             }
         } //getServerList
 
+        //full deploy action for a single server
+        //backs up the files to C:\<timestamp>-<packageArtifactID>-OriginalDLLs
+        //TODO implement package type to allow for INV and REL deploy types.
         private void deployToServer(string serverName)
         {
 
