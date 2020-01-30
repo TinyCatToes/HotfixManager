@@ -6,11 +6,15 @@ using kCura.EventHandler.CustomAttributes;
 using kCura.Relativity.Client;
 using Relativity.API;
 using Relativity.Services.Objects;
+using Relativity.Services.Objects.DataContracts;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
 
 namespace HotfixManager.EventHandlers
 {
-    [kCura.EventHandler.CustomAttributes.Description("Post Install EventHandler")]
-    [System.Runtime.InteropServices.Guid("1d932493-4ea0-471d-8baa-b64576720bf6")]
+    [kCura.EventHandler.CustomAttributes.Description("Post Install Event Handler to build out necessary objects and fields")]
+    [System.Runtime.InteropServices.Guid("B3BFEE85-DBAA-48BF-8B1B-BD8BCC452DF8")]
     public class PostInstallSetup : kCura.EventHandler.PostInstallEventHandler
     {
         private IAPILog logger;
@@ -30,7 +34,24 @@ namespace HotfixManager.EventHandlers
 
             try
             {
-                
+                using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+                {
+                    //mass request to create object types
+                    MassCreateRequest objectTypeMassCreateReq = new MassCreateRequest()
+                    {
+                        ObjectType = new ObjectType() { Name = "Object Type"},
+                        Fields = new List<FieldRef>()
+                        {
+                            new FieldRef() { Name = "Name"},
+                            new FieldRef() {  }
+                        },
+
+                    };
+
+                }
+
+
+
             }
             catch (Exception ex)
             {
