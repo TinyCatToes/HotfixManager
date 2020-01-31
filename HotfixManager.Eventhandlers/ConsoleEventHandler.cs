@@ -124,7 +124,7 @@ namespace HotfixManager.EventHandlers
                 };
                 try
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
@@ -168,7 +168,7 @@ namespace HotfixManager.EventHandlers
                 };
                 try 
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
@@ -218,7 +218,7 @@ namespace HotfixManager.EventHandlers
                 };
                 try
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
