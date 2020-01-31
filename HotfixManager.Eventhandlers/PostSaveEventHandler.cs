@@ -25,7 +25,7 @@ namespace HotfixManager.EventHandlers
 {
     [kCura.EventHandler.CustomAttributes.Description("Post Save Event Handler that parses a hotfix package and auto-updates fields on the page.")]
     [System.Runtime.InteropServices.Guid("853FEDAE-3A07-4A5C-8830-AAE62BF855E1")]
-    [kCura.EventHandler.CustomAttributes.RunTarget(kCura.EventHandler.Helper.RunTargets.Instance)]
+    [kCura.EventHandler.CustomAttributes.RunTarget(kCura.EventHandler.Helper.RunTargets.Workspace)]
     public class HotfixParseHandler : kCura.EventHandler.PostSaveEventHandler
     {
         string PackageDestinationFolderPath = "PREINIT";
@@ -59,7 +59,7 @@ namespace HotfixManager.EventHandlers
             try
             {
                 logger.LogDebug("Hotfix: Attempting to download file from field {field} on object {object}", FileField.ArtifactID, CurrentObject.ArtifactID);
-                downloadAndSaveFileToDisk(-1, FileField, CurrentObject);
+                downloadAndSaveFileToDisk(FileField, CurrentObject);
             }
             catch (Exception ex)
             {
@@ -89,7 +89,7 @@ namespace HotfixManager.EventHandlers
                     SqlParameter selfArtifactID = new SqlParameter("PackageArtifactID", SqlDbType.Int);
                     actingUser.Value = Helper.GetAuthenticationManager().UserInfo.ArtifactID;
                     selfArtifactID.Value = this.ActiveArtifact.ArtifactID;
-                    Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, actingUser });
+                    Helper.GetDBContext(Helper.GetActiveCaseID()).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, actingUser });
                     updateInlineFieldsWithResult(true);
                 }
                 catch (Exception ex)
@@ -143,7 +143,7 @@ namespace HotfixManager.EventHandlers
                 };
                 try
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
@@ -159,7 +159,7 @@ namespace HotfixManager.EventHandlers
 
         //this downloads the zip from the file field and pastes it into the EDDSFileshare. Targets a folder named for the current object's artifact ID.
         //also unzips package to a subfolder.
-        private void downloadAndSaveFileToDisk(int WorkspaceID, FieldRef FileField, RelativityObjectRef Target)
+        private void downloadAndSaveFileToDisk(FieldRef FileField, RelativityObjectRef Target)
         {
             //grab EDDSfileshare from instance settings
             using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
@@ -179,11 +179,11 @@ namespace HotfixManager.EventHandlers
                     // check if trailing slash exists
                     if (!resultValue.Substring(resultValue.Length - 1, 1).Equals(@"\"))
                     {
-                        PackageDestinationFolderPath = resultValue + @"\Hotfix\" + this.ActiveArtifact.ArtifactID.ToString();
+                        PackageDestinationFolderPath = resultValue + @"\Hotfix\" + Helper.GetActiveCaseID() + "_" + this.ActiveArtifact.ArtifactID.ToString();
                     }
                     else
                     {
-                        PackageDestinationFolderPath = resultValue + @"Hotfix\" + this.ActiveArtifact.ArtifactID.ToString();
+                        PackageDestinationFolderPath = resultValue + @"Hotfix\" + Helper.GetActiveCaseID() + "_" + this.ActiveArtifact.ArtifactID.ToString();
                     }
                     PackageDestinationFilePath = PackageDestinationFolderPath + @"\Package.zip";
                     PackageDestinationUnzippedPath = PackageDestinationFolderPath + @"\Expanded";
@@ -205,7 +205,7 @@ namespace HotfixManager.EventHandlers
                     System.IO.Directory.CreateDirectory(PackageDestinationFolderPath);
                     using (FileStream file = File.Open(PackageDestinationFilePath, FileMode.Create))
                     {
-                        Task<IKeplerStream> stream = proxy.DownloadAsync(WorkspaceID, Target, FileField);
+                        Task<IKeplerStream> stream = proxy.DownloadAsync(Helper.GetActiveCaseID(), Target, FileField);
                         stream.Result.GetStreamAsync().Result.CopyTo(file);
                         logger.LogDebug("Hotfix: Package File saved to {@Path}", propertyValues: PackageDestinationFilePath);
                         file.Close();
@@ -243,7 +243,7 @@ namespace HotfixManager.EventHandlers
                         FieldValues = new List<FieldRefValuePair> { diskLocFVP }
                     };
 
-                    objectManager.UpdateAsync(-1, updateRequest).Wait();
+                    objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Wait();
                 }
                 catch (Exception ex)
                 {
@@ -301,7 +301,7 @@ namespace HotfixManager.EventHandlers
                         FieldValues = new List<FieldRefValuePair> { nameFVP, versionFVP }
                     };
 
-                    objectManager.UpdateAsync(-1, updateRequest).Wait();                   
+                    objectManager.UpdateAsync(Helper.GetActiveCaseID(), updateRequest).Wait();                   
                 }
                 catch (Exception ex)
                 {
