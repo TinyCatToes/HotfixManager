@@ -34,21 +34,7 @@ namespace HotfixManager.EventHandlers
 
             try
             {
-                using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
-                {
-                    //mass request to create object types
-                    MassCreateRequest objectTypeMassCreateReq = new MassCreateRequest()
-                    {
-                        ObjectType = new ObjectType() { Name = "Object Type"},
-                        Fields = new List<FieldRef>()
-                        {
-                            new FieldRef() { Name = "Name"},
-                            new FieldRef() {  }
-                        },
-
-                    };
-
-                }
+                
 
 
 
