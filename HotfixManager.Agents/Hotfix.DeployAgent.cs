@@ -266,7 +266,7 @@ namespace HotfixManager.Agents
                     };                    
                     var logRunStatus = new FieldRefValuePair
                     {
-                        Field = new FieldRef() { Name = "Run Status" },
+                        Field = new FieldRef() { Guid = Constants.Constants.LOG_STATUS_FIELD },
                         Value = new ChoiceRef { Guid = Constants.Constants.LOG_STATUS_INPROG_CHOICE }
                     };                    
                     var logLongText = new FieldRefValuePair
