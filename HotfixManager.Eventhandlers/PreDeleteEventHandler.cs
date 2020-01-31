@@ -40,7 +40,7 @@ namespace HotfixManager.EventHandlers
                             Object = new RelativityObjectRef { ArtifactID = this.ActiveArtifact.ArtifactID },
                             Fields = new FieldRef[] { folderLocationRef }
                         };
-                        result = objectManager.ReadAsync(-1, readRequest).Result;                        
+                        result = objectManager.ReadAsync(Helper.GetActiveCaseID(), readRequest).Result;                        
                     }
                     catch (AggregateException ex)
                     {
