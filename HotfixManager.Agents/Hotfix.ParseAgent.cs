@@ -25,6 +25,7 @@ namespace HotfixManager.Agents
         private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixParseQueue set Status = 3 where AgentName = @AgentName and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
+        private int workspaceArtifactID = 0;
         private string packageDiskLocation = "PREINIT";
         private IAPILog logger;
 
@@ -43,6 +44,7 @@ namespace HotfixManager.Agents
                 }
                 queueID = queuerow.Field<int>("QueueID");
                 packageArtifactID = queuerow.Field<int>("PackageArtifactID");
+                workspaceArtifactID = queuerow.Field<int>("WorkspaceArtifactID");
                 logger.LogVerbose("Hotfix: Located parse-ready package {AID} with queueID {QID}", packageArtifactID, queueID);//verb
             }
             catch (Exception ex)
@@ -194,7 +196,7 @@ namespace HotfixManager.Agents
                     queryRequestString = @"(('ArtifactID' == '" + packageArtifactID.ToString() + @"'))";                                    
                     queryRequest.Condition = queryRequestString;                           
 
-                    Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(-1, queryRequest, 1, 1).Result;
+                    Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(workspaceArtifactID, queryRequest, 1, 1).Result;
                     resultValue = qresult.Objects[0].FieldValues[0].Value.ToString();
                     logger.LogVerbose("Hotifx: Retrieved path {path} for package object {AID}", resultValue,packageArtifactID);
                 }            
@@ -384,7 +386,7 @@ namespace HotfixManager.Agents
                 //execute the massrequest.
                 try
                 {
-                    var massCreateResult = objectManager.CreateAsync(-1, massRequest).Result;
+                    var massCreateResult = objectManager.CreateAsync(workspaceArtifactID, massRequest).Result;
                     if(massCreateResult.Success == false)
                     {
                         logger.LogError("Hotfix: MassCreate partially failed: {message}", massCreateResult.Message);
@@ -477,7 +479,7 @@ namespace HotfixManager.Agents
                 };
                 try
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(workspaceArtifactID, updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
@@ -490,6 +492,7 @@ namespace HotfixManager.Agents
             }
         } //end updateInlineFieldsWithResult
 
+        //not used, provided for reference only
         private enum StatusCode
         {
             Queued,
