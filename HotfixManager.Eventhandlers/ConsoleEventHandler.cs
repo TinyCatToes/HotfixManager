@@ -235,6 +235,13 @@ namespace HotfixManager.EventHandlers
             }
         }
 
+        private enum StatusCode
+        {
+            Queued,
+            InProgress,
+            Error,
+            RetryQueued
+        }
 
         /// <summary>
         ///     The RequiredFields property tells Relativity that your event handler needs to have access to specific fields that

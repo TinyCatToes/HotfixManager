@@ -584,6 +584,14 @@ namespace HotfixManager.Agents
             }
         }//end exitWithFailure
 
+        private enum StatusCode
+        {
+            Queued,
+            InProgress,
+            Error,
+            RetryQueued
+        }
+
         /// <summary>
         /// Returns the name of agent
         /// </summary>

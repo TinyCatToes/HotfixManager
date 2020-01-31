@@ -490,7 +490,13 @@ namespace HotfixManager.Agents
             }
         } //end updateInlineFieldsWithResult
 
-
+        private enum StatusCode
+        {
+            Queued,
+            InProgress,
+            Error,
+            RetryQueued
+        }
 
         //class to hold data for each hotfix item before being written to the database.
         public class HotfixFile
