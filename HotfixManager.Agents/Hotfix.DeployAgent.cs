@@ -22,6 +22,7 @@ namespace HotfixManager.Agents
         private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifactID = @PackageArtifactID and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
+        private int workspaceArtifactID = 0;
         private bool slapdashAllInOneOverride = true; //remove this once the selfdrop problem is solved.
 
         //private string packageDiskLocation = "PREINIT";
@@ -49,6 +50,7 @@ namespace HotfixManager.Agents
                 }
                 queueID = queuerow.Field<int>("QueueID");
                 packageArtifactID = queuerow.Field<int>("PackageArtifactID");
+                workspaceArtifactID = queuerow.Field<int>("WorkspaceArtifactID");
                 logger.LogVerbose("Hotfix: Located deloyable package {AID} with queueID {QID}", packageArtifactID, queueID);//verb
             }
             catch (Exception ex)
@@ -231,7 +233,7 @@ namespace HotfixManager.Agents
                 };
                 try
                 {
-                    var objManResult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    var objManResult = objectManager.UpdateAsync(workspaceArtifactID, updateRequest).Result;
                 }
                 catch (AggregateException ex)
                 {//print error for each exception in aggregate, then end.
@@ -245,7 +247,7 @@ namespace HotfixManager.Agents
         } //end updateInlineFieldsWithResult
       
         //creates and initializes the RDO that holds all logging information. 
-        //returns an ObjectRef to the log RDO.
+        //returns a RelativityObject representing the log RDO.
         private RelativityObject createLogRDO()
         {
             using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
@@ -278,7 +280,7 @@ namespace HotfixManager.Agents
                         ParentObject = new RelativityObjectRef() { ArtifactID = packageArtifactID },
                         FieldValues = new List<FieldRefValuePair> { logName,logRunDate,logRunStatus,logLongText}
                     };                    
-                    var result = objectManager.CreateAsync(-1, createreq).Result;                  
+                    var result = objectManager.CreateAsync(workspaceArtifactID, createreq).Result;                  
                     return result.Object;
                 }
                 catch(AggregateException ex)
@@ -316,7 +318,7 @@ namespace HotfixManager.Agents
                 };
 
                 try
-                {
+                {//query admin DB for servers of desired type
                     qresult = objectManager.QueryAsync(-1, qrequest, 1, 150).Result;
                 }
                 catch(AggregateException ex)
@@ -384,7 +386,7 @@ namespace HotfixManager.Agents
                 };             
                 try
                 {
-                    readResult = objectManager.ReadAsync(-1, readreq).Result;
+                    readResult = objectManager.ReadAsync(workspaceArtifactID, readreq).Result;
                     if (readResult.Object.FieldValues.Count < 1)
                     {
                         throw new Exception("ReadAsync returned no results.");
@@ -424,7 +426,7 @@ namespace HotfixManager.Agents
                     logger.LogFatal("Attempting UpdateAsync");
                 
                 
-                        var updresult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                        var updresult = objectManager.UpdateAsync(workspaceArtifactID, updateRequest).Result;
                     }
                     catch (AggregateException ex)
                     {//print error for each exception in aggregate, then end.
@@ -490,7 +492,7 @@ namespace HotfixManager.Agents
                 };
                 using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
                 {
-                    var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                    var updresult = objectManager.UpdateAsync(workspaceArtifactID, updReq).Result;
                 }
 
             }
@@ -566,7 +568,7 @@ namespace HotfixManager.Agents
                     };
                     using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
                     {
-                        var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                        var updresult = objectManager.UpdateAsync(workspaceArtifactID, updReq).Result;
                     }
 
                 }
