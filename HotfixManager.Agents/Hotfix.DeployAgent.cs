@@ -16,13 +16,15 @@ namespace HotfixManager.Agents
     public class DeployAgent : AgentBase
     {
         private static string CHECK_QUEUE_NEW_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where (AgentName is null) OR (AgentName = '') and [Status] = 1 order by QueueID asc";
-        private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where AgentName  = @AgentName and [Status] = 3 order by QueueID asc";
+        private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixDeployQueue where AgentName = @AgentName and [Status] = 4 order by QueueID asc";
         private static string LOCKQUEUEENTRY_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set AgentName = @AgentName, Status = 2 where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID and Status = 1 and ((AgentName is null) or (AgentName = ''))";
         private static string DELETEFROMQUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixDeployQueue where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID";
-        private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where AgentName = @AgentName and QueueID = @QueueID";
+        private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 3 where packageArtifactID = @PackageArtifactID and QueueID = @QueueID";
         private int packageArtifactID = 0;
         private int queueID = 0;
-        private string packageDiskLocation = "PREINIT";
+        private bool slapdashAllInOneOverride = true; //remove this once the selfdrop problem is solved.
+
+        //private string packageDiskLocation = "PREINIT";
         private IAPILog logger;
 
         public override void Execute()
@@ -67,22 +69,48 @@ namespace HotfixManager.Agents
             catch (Exception ex)
             {
                 exitWithFailure(ex.ToString());
-                RaiseError("Failed to lock queue row for work.", ex.ToString());
+                RaiseError("Failed to lock queue row for work.", ex.ToString());                
             }
 
             //create logging RDO
+            RelativityObject logRDO = new RelativityObject() { ArtifactID = 0 };
             try
             {
-                ObjectRef logRDO = createLogRDO();
+                logRDO = createLogRDO();                
             }
             catch(Exception ex)
             {
                 exitWithFailure(ex.ToString());
-                RaiseError("Failed to create Job History RDO", ex.ToString());
+                RaiseError("Failed to create Job History RDO", ex.ToString());                
             }
 
-
-
+            List<string> serverList = new List<string>();
+            //generate list of target servers.
+            try
+            {
+                
+                serverList = getServerList(logRDO);
+            }
+            catch(Exception ex)
+            {
+                exitWithFailure(ex.ToString());
+                RaiseError("Failed to read server list.", ex.ToString());
+            }
+            
+            //loop the list and call deploy.
+            foreach (string curServer in serverList)
+            {
+                try
+                {
+                    deployToServer(curServer);
+                }
+                catch (Exception ex)
+                {                    
+                    exitWithFailure(ex.ToString());
+                    RaiseError("Failed to deploy to server" + curServer,ex.ToString());
+                }
+            }
+            exitWithSuccess(logRDO);
 
         }//end Execute
 
@@ -92,6 +120,7 @@ namespace HotfixManager.Agents
             //look for an errored queue row already locked by this agent.
             DataTable ExistingQResult = new DataTable();
             SqlParameter agentNameParam = new SqlParameter("AgentName", SqlDbType.Int);
+            agentNameParam.Value = this.AgentID;
             try
             {
                 ExistingQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_EXISTING_QUERY, new List<SqlParameter> { agentNameParam } );
@@ -175,7 +204,7 @@ namespace HotfixManager.Agents
                     deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_INPROG_CHOICE };
                     break;
                 case "Error":
-                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_ERROR_FIELD };
+                    deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_ERROR_CHOICE };
                     break;
                 case "Complete":
                     deployStatusFVP.Value = new ChoiceRef { Guid = Constants.Constants.LAST_RUN_COMPLETE_CHOICE };
@@ -214,10 +243,274 @@ namespace HotfixManager.Agents
                 }
             }
         } //end updateInlineFieldsWithResult
+      
+        //creates and initializes the RDO that holds all logging information. 
+        //returns an ObjectRef to the log RDO.
+        private RelativityObject createLogRDO()
+        {
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {                                
+                try
+                {
+                    var logName = new FieldRefValuePair
+                    {
+                        Field = new FieldRef() { Name = "Name" },
+                        Value = packageArtifactID.ToString() + DateTime.UtcNow.ToString()
+                    };             
+                    var logRunDate = new FieldRefValuePair
+                    {
+                        Field = new FieldRef() { Name = "Run Time" },
+                        Value = DateTime.Now.ToString()
+                    };                    
+                    var logRunStatus = new FieldRefValuePair
+                    {
+                        Field = new FieldRef() { Name = "Run Status" },
+                        Value = new ChoiceRef { Guid = Constants.Constants.LOG_STATUS_INPROG_CHOICE }
+                    };                    
+                    var logLongText = new FieldRefValuePair
+                    {
+                        Field = new FieldRef() { Name = "Log" },
+                        Value = @"***Beginning deployment of package " + packageArtifactID.ToString() + " by agent " + this.AgentID + "***"
+                    };                    
+                    CreateRequest createreq = new CreateRequest
+                    {
+                        ObjectType = new ObjectTypeRef() { Name = "Hotfix - Job History"},
+                        ParentObject = new RelativityObjectRef() { ArtifactID = packageArtifactID },
+                        FieldValues = new List<FieldRefValuePair> { logName,logRunDate,logRunStatus,logLongText}
+                    };                    
+                    var result = objectManager.CreateAsync(-1, createreq).Result;                  
+                    return result.Object;
+                }
+                catch(AggregateException ex)
+                {
+                    foreach(Exception e in ex.InnerExceptions)
+                    {                     
+                        logger.LogError(e, "Hotfix: failed to create deploy log object.");
+                    }
+                    throw;
+                }
+                catch(Exception ex)
+                {                    
+                    logger.LogError(ex, "Hotfix: failed to create deploy log object.");
+                    throw;
+                }                             
+            }            
+        }  //end createLogRDO
 
+        private List<string> getServerList(RelativityObject logRDO)
+        {
+            Relativity.Services.Objects.DataContracts.QueryResult qresult;
+            var retList = new List<string>();
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {
+                QueryRequest qrequest = new QueryRequest
+                {
+                    ObjectType = new ObjectTypeRef() { Name = "Resource Server" },
+                    Condition = "(('Type' IN  ['Web','Agent','Worker Manager']))",
+                    Fields = new List<FieldRef>()
+                    {
+                        new FieldRef() { Name = "ArtifactID" },
+                        new FieldRef() { Name = "Name" },
+                        new FieldRef() { Name = "Type" }
+                    }                    
+                };
+
+                try
+                {
+                    qresult = objectManager.QueryAsync(-1, qrequest, 1, 150).Result;
+                }
+                catch(AggregateException ex)
+                {
+                    foreach (Exception e in ex.InnerExceptions)
+                    {
+                        logger.LogError(e, "Hotfix: failed to get server list.");
+                    }
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex,"Hotfix: failed to get server list.");
+                    throw;
+                }
+                foreach(RelativityObject obj in qresult.Objects )
+                {
+                    string message = "Located " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString() + " with artifactID " + obj.FieldValues[0].Value.ToString();
+                    writeToLog(message,logRDO);
+                    if ((int)obj.FieldValues[0].Value == this.GetAgentServerID() && slapdashAllInOneOverride is false)//check to see if self is in list. added terrible override key to allow for testing in all-in-ones
+                    {
+                        writeToLog("Skipping server " + obj.FieldValues[1].Value.ToString() + "because an agent cannot deploy a package to its own server.",logRDO);
+                    }
+                    else
+                    {//add current server to list ONLY if it is not the current server and not already in the list.
+                        if (!retList.Contains(obj.FieldValues[1].Value.ToString()) )
+                        {
+                            retList.Add(obj.FieldValues[1].Value.ToString());
+                            writeToLog("Queued drop to " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString(), logRDO);
+                        }
+                        else
+                        {
+                            writeToLog("Skipped drop to " + obj.FieldValues[2].Value.ToString() + " server " + obj.FieldValues[1].Value.ToString() + " as this server is already queued", logRDO);
+                        }
+                    }
+                }
+                return retList;
+            }
+        } //getServerList
+
+        //full deploy action for a single server
+        //backs up the files to C:\<timestamp>-<packageArtifactID>-OriginalDLLs
+        //TODO implement package type to allow for INV and REL deploy types.
+        private void deployToServer(string serverName)
+        {
+
+        }
+
+        //wrapper to append lines to the log RDO. 
+        //does not rethrow exceptions, simply logs them.
+        private void writeToLog(string logMessage, RelativityObject logRDO )
+        {            
+
+            //read current log data.
+            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            {               
+                Relativity.Services.Objects.DataContracts.ReadResult readResult;
+                ReadRequest readreq = new ReadRequest()
+                {
+                    Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                    Fields = new List<FieldRef>()
+                    {
+                        new FieldRef() {Name = "Log"}
+                    }
+                };             
+                try
+                {
+                    readResult = objectManager.ReadAsync(-1, readreq).Result;
+                    if (readResult.Object.FieldValues.Count < 1)
+                    {
+                        throw new Exception("ReadAsync returned no results.");
+                    }
+                }
+                catch (AggregateException ex)
+                {
+                    foreach (Exception e in ex.InnerExceptions)
+                    {
+                        logger.LogError(e, "Hotfix: failed to read current job log.");
+                    }
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: failed to read current job log.");
+                    throw;
+                }                                
+
+                try
+                {                 
+                    string currentLog = readResult.Object.FieldValues[0].Value.ToString();
+                    string appendedLog = currentLog + Environment.NewLine + logMessage;                    
+
+                    var updateRequest = new UpdateRequest()
+                    {
+                        Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                        FieldValues = new List<FieldRefValuePair>()
+                        {
+                            new FieldRefValuePair()
+                            {
+                                Field = new FieldRef() {Name = "Log"},
+                                Value = appendedLog
+                            }
+                        }
+                    };
+                    logger.LogFatal("Attempting UpdateAsync");
+                
+                
+                        var updresult = objectManager.UpdateAsync(-1, updateRequest).Result;
+                    }
+                    catch (AggregateException ex)
+                    {//print error for each exception in aggregate, then end.
+                        foreach (var exchild in ex.InnerExceptions)
+                        {
+                            logger.LogError(exchild, "Hotfix: Error when writing to log object.");
+                        }
+                        return;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: Error when writing to log object.");
+                    return;
+                }
+            }
+        } //end writeToLog
+
+        //removes queue row and writes to log and inline results fields
+        private void exitWithSuccess(RelativityObject logRDO)
+        {
+            //remove job row from queue
+            SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+            SqlParameter queueIDParam = new SqlParameter("QueueID", SqlDbType.Int);
+            packageIDParam.Value = packageArtifactID;
+            queueIDParam.Value = queueID;
+            try
+            {
+                int rowsaffected = Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(DELETEFROMQUEUE_QUERY, new List<SqlParameter> { packageIDParam, queueIDParam });
+                if (rowsaffected == 0)
+                {
+                    throw new Exception("No row found to delete for package ID" + packageArtifactID.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error Removing row from Deploy queue");
+            }
+
+            //update logRDO status.
+            updateInlineFieldsWithResult("Complete");
+            writeToLog("***Completed Deployment of package.***",logRDO);
+
+            try
+            {
+                var updReq = new UpdateRequest()
+                {
+                    Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                    FieldValues = new List<FieldRefValuePair>()
+                    {
+                        new FieldRefValuePair()
+                        {
+                            Field = new FieldRef()
+                            {
+                                Name = "Run Status"
+                            },
+                            Value = new ChoiceRef()
+                            {
+                                Guid = Constants.Constants.LOG_STATUS_COMPLETE_CHOICE
+                            }
+                        }
+
+                    }
+                };
+                using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+                {
+                    var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                }
+
+            }
+            catch (AggregateException ex)
+            {
+                foreach (Exception exchild in ex.InnerExceptions)
+                {
+                    logger.LogError(exchild, "Hotfix: Error updating status of log RDO");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Hotfix: Error updating status of log RDO");
+            }
+
+            RaiseMessage("Completed deploy for package " + packageArtifactID.ToString(), 10);
+        }//end exitWithSuccess
 
         //method to set queue row to errored state and call updateInlineFieldsWithResult
-        private void exitWithFailure(string message)
+        private void exitWithFailure(string message, RelativityObject logRDO = null)
         {
             //remove job row from queue
             SqlParameter packageIDParam = new SqlParameter("PackageArtifactID", SqlDbType.Int);
@@ -237,67 +530,59 @@ namespace HotfixManager.Agents
                 logger.LogError(ex, "Hotfix: Error setting row to Error in Deploy queue");
             }
 
+            //update package RDO with results
             updateInlineFieldsWithResult("Error", message);
-        }//end exitWithFailure
 
-
-        //creates and initializes the RDO that holds all logging information. 
-        //returns an ObjectRef to the log RDO.
-        private ObjectRef createLogRDO()
-        {
-            using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+            //append to the log file, if it exsits. if it doesn't, just exit.
+            if (logRDO is null)
             {
-                ObjectRef retVal;
-                var logName = new FieldRefValuePair
-                {
-                    Field = { Name = "Name" },
-                    Value = packageArtifactID.ToString() + DateTime.UtcNow.ToString()
-                };
-                var logRunDate = new FieldRefValuePair
-                {
-                    Field = {Name = "Run Time"},
-                    Value = DateTime.Now
-                };
-                var logRunStatus = new FieldRefValuePair
-                {
-                    Field = { Name = "Run Status" },
-                    Value = new ChoiceRef { Guid = Constants.Constants.LOG_STATUS_INPROG_CHOICE }
-                };
-                var logLongText = new FieldRefValuePair
-                {
-                    Field = { Name = "Log" },
-                    Value = @"***Beginning deployment of package " + packageArtifactID.ToString() + " by agent " + this.AgentID + @"***\n"
-                };
-                CreateRequest createreq = new CreateRequest
-                {
-                    ObjectType = { Name = "Hotfix - Job History"},
-                    ParentObject = { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE },
-                    FieldValues = new List<FieldRefValuePair> { logName,logRunDate,logRunStatus}
-                };
-
+                logger.LogFatal("Hotfix: Log RDO doesn't exist, skipping write.");//verb
+                return;
+            }
+            else
+            {
+                //update log RDO with message and Error status
+                writeToLog(message, logRDO);
                 try
                 {
-                    var result = objectManager.CreateAsync(-1, createreq).Result;
-                    retVal = new ObjectRef { ArtifactID = result.Object.ArtifactID };                 
-                }
-                catch(AggregateException ex)
-                {
-                    foreach(Exception e in ex.InnerExceptions)
+                    var updReq = new UpdateRequest()
                     {
-                        logger.LogError(e, "Hotfix: failed to create deploy log object.");
+                        Object = new RelativityObjectRef() { ArtifactID = logRDO.ArtifactID },
+                        FieldValues = new List<FieldRefValuePair>()
+                    {
+                        new FieldRefValuePair()
+                        {
+                            Field = new FieldRef()
+                            {
+                                Name = "Run Status"
+                            },
+                            Value = new ChoiceRef()
+                            {
+                                Guid = Constants.Constants.LOG_STATUS_ERROR_CHOICE
+                            }
+                        }
+
                     }
-                    throw;
+                    };
+                    using (IObjectManager objectManager = Helper.GetServicesManager().CreateProxy<IObjectManager>(ExecutionIdentity.System))
+                    {
+                        var updresult = objectManager.UpdateAsync(-1, updReq).Result;
+                    }
+
                 }
-                catch(Exception ex)
+                catch (AggregateException ex)
                 {
-                    logger.LogError(ex, "Hotfix: failed to create deploy log object.");
-                    throw;
-                }             
-                return retVal;
-            }            
-        }
-
-
+                    foreach (Exception exchild in ex.InnerExceptions)
+                    {
+                        logger.LogError(exchild, "Hotfix: Error updating status of log RDO");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Hotfix: Error updating status of log RDO");
+                }
+            }
+        }//end exitWithFailure
 
         /// <summary>
         /// Returns the name of agent

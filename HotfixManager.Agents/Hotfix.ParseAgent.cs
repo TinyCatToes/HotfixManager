@@ -19,7 +19,7 @@ namespace HotfixManager.Agents
     public class ParseAgent : AgentBase
     {
         private static string CHECK_QUEUE_NEW_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixParseQueue where (AgentName is null) OR (AgentName = '') and [Status] = 1 order by QueueID asc";
-        private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixParseQueue where AgentName is AgentName and [Status] = 3 order by QueueID asc";
+        private static string CHECK_QUEUE_EXISTING_QUERY = @"select TOP 1 * from EDDS.eddsdbo.HotfixParseQueue where AgentName = @AgentName and [Status] = 3 order by QueueID asc";
         private static string LOCK_QUEUE_ENTRY_QUERY = @"update EDDS.eddsdbo.HotfixParseQueue set AgentName = @AgentName, Status = 2 where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID and Status = 1 and ((AgentName is null) or (AgentName = ''))";
         private static string DELETE_FROM_QUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixParseQueue where QueueID = @QueueID and PackageArtifactID = @PackageArtifactID";
         private static string SET_STATUS_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixParseQueue set Status = 3 where AgentName = @AgentName and QueueID = @QueueID";
@@ -106,6 +106,7 @@ namespace HotfixManager.Agents
             //look for an errored queue row already locked by this agent.
             DataTable ExistingQResult = new DataTable();
             SqlParameter agentNameParam = new SqlParameter("AgentName", SqlDbType.Int);
+            agentNameParam.Value = this.AgentID;
             try
             {
                 ExistingQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_EXISTING_QUERY, new List<SqlParameter> { agentNameParam } );
@@ -125,7 +126,7 @@ namespace HotfixManager.Agents
             //get queue row from database.
             try
             {
-                NewQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_EXISTING_QUERY);
+                NewQResult = Helper.GetDBContext(-1).ExecuteSqlStatementAsDataTable(CHECK_QUEUE_NEW_QUERY);
             }
             catch (Exception ex)
             {
@@ -185,17 +186,17 @@ namespace HotfixManager.Agents
             {
                 try
                 {                    
-                queryRequest.ObjectType = new ObjectTypeRef() { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE };
-                queryRequest.Fields = new List<FieldRef>()
-                {
-                    new FieldRef() { Guid = Constants.Constants.DISK_LOCATION_FIELD }
-                };                                    
-                queryRequestString = @"(('ArtifactID' == '" + packageArtifactID.ToString() + @"'))";                                    
-                queryRequest.Condition = queryRequestString;                           
+                    queryRequest.ObjectType = new ObjectTypeRef() { Guid = Constants.Constants.HOTFIX_OBJECT_TYPE };
+                    queryRequest.Fields = new List<FieldRef>()
+                    {
+                        new FieldRef() { Guid = Constants.Constants.DISK_LOCATION_FIELD }
+                    };                                    
+                    queryRequestString = @"(('ArtifactID' == '" + packageArtifactID.ToString() + @"'))";                                    
+                    queryRequest.Condition = queryRequestString;                           
 
-                Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(-1, queryRequest, 1, 1).Result;
-                resultValue = qresult.Objects[0].FieldValues[0].Value.ToString();
-                logger.LogVerbose("Hotifx: Retrieved path {path} for package object {AID}", resultValue,packageArtifactID);
+                    Relativity.Services.Objects.DataContracts.QueryResult qresult = objectManager.QueryAsync(-1, queryRequest, 1, 1).Result;
+                    resultValue = qresult.Objects[0].FieldValues[0].Value.ToString();
+                    logger.LogVerbose("Hotifx: Retrieved path {path} for package object {AID}", resultValue,packageArtifactID);
                 }            
                 catch (Exception ex)
                 {
@@ -347,7 +348,7 @@ namespace HotfixManager.Agents
                                     break;
                                 }
                         }
-                        currentItem.Locations += curLoc + "\r\n";                       
+                        currentItem.Locations += curLoc + Environment.NewLine;                    
                     }
                     //populated class added to list, will be created in loop at the end.
                     hotfixItems.Add(currentItem);
