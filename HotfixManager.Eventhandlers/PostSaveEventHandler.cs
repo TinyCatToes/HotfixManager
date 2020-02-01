@@ -31,7 +31,7 @@ namespace HotfixManager.EventHandlers
         string PackageDestinationFolderPath = "PREINIT";
         string PackageDestinationFilePath = "PREINIT";
         string PackageDestinationUnzippedPath = "PREINIT";
-        private const string ENQUEUE_QUERY = @"insert into EDDS.eddsdbo.HotfixParseQueue values (@PackageArtifactID,1,'',100,GETUTCDATE(),@ActingUser)";
+        private const string ENQUEUE_QUERY = @"insert into EDDS.eddsdbo.HotfixParseQueue values (@PackageArtifactID,@WorkspaceArtifactID,1,'',100,GETUTCDATE(),@ActingUser)";
         private IAPILog logger;
 
         public override Response Execute()
@@ -87,9 +87,11 @@ namespace HotfixManager.EventHandlers
                 {
                     SqlParameter actingUser = new SqlParameter("ActingUser", SqlDbType.Int);
                     SqlParameter selfArtifactID = new SqlParameter("PackageArtifactID", SqlDbType.Int);
+                    SqlParameter workspaceArtifactID = new SqlParameter("WorkspaceArtifactID", SqlDbType.Int);
                     actingUser.Value = Helper.GetAuthenticationManager().UserInfo.ArtifactID;
                     selfArtifactID.Value = this.ActiveArtifact.ArtifactID;
-                    Helper.GetDBContext(Helper.GetActiveCaseID()).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, actingUser });
+                    workspaceArtifactID.Value = Helper.GetActiveCaseID();
+                    Helper.GetDBContext(Helper.GetActiveCaseID()).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, workspaceArtifactID, actingUser });
                     updateInlineFieldsWithResult(true);
                 }
                 catch (Exception ex)
