@@ -18,7 +18,7 @@ namespace HotfixManager.EventHandlers
     public class HotfixConsoleEventhandler : kCura.EventHandler.ConsoleEventHandler
     {
         private const string JOB_EXISTS_QUERY = @"select case when not exists (select 1 from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID) then 0 else (select Status from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID) end";
-        private const string ENQUEUE_QUERY = @"insert into EDDS.eddsdbo.HotfixDeployQueue values (@PackageArtifactID,1,'',100,GETUTCDATE(),@ActingUser)";
+        private const string ENQUEUE_QUERY = @"insert into EDDS.eddsdbo.HotfixDeployQueue values (@PackageArtifactID,@WorkspaceArtifactID,1,'',100,GETUTCDATE(),@ActingUser)";
         private const string DEQUEUE_QUERY = @"delete from EDDS.eddsdbo.HotfixDeployQueue where PackageArtifactID = @PackageArtifactID";
         private const string RETRY_ERROR_QUERY = @"update EDDS.eddsdbo.HotfixDeployQueue set Status = 4 where PackageArtifactID = @PackageArtifactID";
         private IAPILog logger;
@@ -94,8 +94,10 @@ namespace HotfixManager.EventHandlers
             try
             {
                 SqlParameter actingUser = new SqlParameter("ActingUser", SqlDbType.Int);
-                actingUser.Value = Helper.GetAuthenticationManager().UserInfo.ArtifactID;                
-                Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, actingUser } ); 
+                SqlParameter workspaceArtifactID = new SqlParameter("WorkspaceArtifactID", SqlDbType.Int);
+                actingUser.Value = Helper.GetAuthenticationManager().UserInfo.ArtifactID;
+                workspaceArtifactID.Value = Helper.GetActiveCaseID();
+                Helper.GetDBContext(-1).ExecuteNonQuerySQLStatement(ENQUEUE_QUERY, new List<SqlParameter> { selfArtifactID, workspaceArtifactID, actingUser } ); 
             }
             catch(Exception ex)
             {
